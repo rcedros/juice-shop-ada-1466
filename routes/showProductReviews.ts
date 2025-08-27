@@ -29,14 +29,25 @@ export function showProductReviews () {
   return (req: Request, res: Response, next: NextFunction) => {
     // Truncate id to avoid unintentional RCE
     const challengeActive = utils.isChallengeEnabled(challenges.noSqlCommandChallenge)
-    const id = challengeActive ? utils.trunc(req.params.id, 40) : Number(req.params.id)
+    let id: number
+    if (challengeActive) {
+      // Only allow a numeric product id (safe for $where), reject if not
+      const idStr = utils.trunc(req.params.id, 40)
+      if (!/^\d+$/.test(idStr)) {
+        res.status(400).json({ error: 'Invalid product id' })
+        return
+      }
+      id = Number(idStr)
+    } else {
+      id = Number(req.params.id)
+    }
 
     // Measure how long the query takes, to check if there was a nosql dos attack
     const t0 = new Date().getTime()
 
     // SECURITY PATCH: Avoid code injection by using a direct query, not $where, except in challenge mode
     const query = challengeActive
-      ? { $where: 'this.product == ' + id } // Intentionally unsafe for challenge
+      ? { $where: 'this.product == ' + id }
       : { product: id }
     db.reviewsCollection.find(query).then((reviews: Review[]) => {
       const t1 = new Date().getTime()
